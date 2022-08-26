@@ -4,6 +4,8 @@
 
 import time
 import sys
+import re
+from typing import NamedTuple
 from xml.etree import ElementTree
 import binascii
 import datetime
@@ -40,11 +42,26 @@ def indent_xml(element, indent, level=0):
         if level and (not element.tail or not element.tail.strip()):
             element.tail = i
 
+def _to_qname(namespace: str | None, local_name: str) -> str:
+    if namespace:
+        return '{' + namespace + '}' + local_name
+    return local_name
+
+class QName(NamedTuple):
+    namespace: str | None
+    local_name: str
+
+def from_qnamestr(qnamestr: str) -> QName:
+    m = re.search('(?:{(.)})?(.)', qnamestr)
+    if not m:
+        raise ValueError
+    return QName(m.group(1), m.group(2))
 
 class Type(BaseType):
 
-    def __init__(self, name, type_name):
+    def __init__(self, name, namespace, type_name):
         super().__init__(name.replace(' ', '_'), type_name)
+        self.namespace = namespace
 
     def set_size_range(self, minimum, maximum, has_extension_marker):
         pass
@@ -60,14 +77,14 @@ class Type(BaseType):
 
 class StringType(Type):
 
-    def __init__(self, name, type_name=None):
+    def __init__(self, name, namespace, type_name=None):
         if type_name is None:
             type_name = self.__class__.__name__
 
-        super(StringType, self).__init__(name, type_name)
+        super(StringType, self).__init__(name, namespace, type_name)
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
 
         if len(data) > 0:
             element.text = data
@@ -90,12 +107,12 @@ class StringType(Type):
 
 class MembersType(Type):
 
-    def __init__(self, name, members, type_name):
-        super(MembersType, self).__init__(name, type_name)
+    def __init__(self, name, namespace, members, type_name):
+        super(MembersType, self).__init__(name, namespace, type_name)
         self.members = members
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
 
         for member in self.members:
             name = member.name
@@ -126,7 +143,7 @@ class MembersType(Type):
 
         for member in self.members:
             name = member.name
-            member_element = element.find(name)
+            member_element = element.find(_to_qname(member.namespace, name))
 
             if member_element is not None:
                 try:
@@ -152,12 +169,12 @@ class MembersType(Type):
 
 class ArrayType(Type):
 
-    def __init__(self, name, element_type, type_name):
-        super(ArrayType, self).__init__(name, type_name)
+    def __init__(self, name, namespace, element_type, type_name):
+        super(ArrayType, self).__init__(name, namespace, type_name)
         self.element_type = element_type
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
 
         for entry in data:
             element.append(self.element_type.encode_of(entry))
@@ -181,11 +198,11 @@ class ArrayType(Type):
 
 class Boolean(Type):
 
-    def __init__(self, name):
-        super(Boolean, self).__init__(name, 'BOOLEAN')
+    def __init__(self, name, namespace):
+        super(Boolean, self).__init__(name, namespace, 'BOOLEAN')
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         ElementTree.SubElement(element, 'true' if data else 'false')
 
         return element
@@ -202,11 +219,11 @@ class Boolean(Type):
 
 class Integer(Type):
 
-    def __init__(self, name):
-        super(Integer, self).__init__(name, 'INTEGER')
+    def __init__(self, name, namespace):
+        super(Integer, self).__init__(name, namespace, 'INTEGER')
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.text = str(data)
 
         return element
@@ -217,8 +234,8 @@ class Integer(Type):
 
 class Real(Type):
 
-    def __init__(self, name):
-        super(Real, self).__init__(name, 'REAL')
+    def __init__(self, name, namespace):
+        super(Real, self).__init__(name, namespace, 'REAL')
 
     def encode(self, data):
         data = float(data)
@@ -228,7 +245,7 @@ class Real(Type):
             data /= 10
             exponent += 1
 
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.text = '{}E{}'.format(data, exponent)
 
         return element
@@ -239,11 +256,11 @@ class Real(Type):
 
 class Null(Type):
 
-    def __init__(self, name):
-        super(Null, self).__init__(name, 'NULL')
+    def __init__(self, name, namespace):
+        super(Null, self).__init__(name, namespace, 'NULL')
 
     def encode(self, data):
-        return ElementTree.Element(self.name)
+        return ElementTree.Element(_to_qname(self.namespace, self.name))
 
     def decode(self, element):
         return None
@@ -251,11 +268,11 @@ class Null(Type):
 
 class BitString(Type):
 
-    def __init__(self, name):
-        super(BitString, self).__init__(name, 'BIT STRING')
+    def __init__(self, name, namespace):
+        super(BitString, self).__init__(name, namespace, 'BIT STRING')
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
 
         if data[1] > 0:
             encoded = int(binascii.hexlify(data[0]), 16)
@@ -286,11 +303,11 @@ class BitString(Type):
 
 class OctetString(Type):
 
-    def __init__(self, name):
-        super(OctetString, self).__init__(name, 'OCTET STRING')
+    def __init__(self, name, namespace):
+        super(OctetString, self).__init__(name, namespace, 'OCTET STRING')
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
 
         if len(data) > 0:
             element.text = format_bytes(data).upper()
@@ -308,8 +325,8 @@ class OctetString(Type):
 
 class ObjectIdentifier(StringType):
 
-    def __init__(self, name):
-        super(ObjectIdentifier, self).__init__(name, 'OBJECT IDENTIFIER')
+    def __init__(self, name, namespace):
+        super(ObjectIdentifier, self).__init__(name, namespace, 'OBJECT IDENTIFIER')
 
     def decode(self, element):
         if element.text is None:
@@ -320,8 +337,8 @@ class ObjectIdentifier(StringType):
 
 class Enumerated(Type):
 
-    def __init__(self, name, values, numeric):
-        super(Enumerated, self).__init__(name, 'ENUMERATED')
+    def __init__(self, name, namespace, values, numeric):
+        super(Enumerated, self).__init__(name, namespace, 'ENUMERATED')
 
         if numeric:
             self.data_to_value = enum_values_as_dict(values)
@@ -349,7 +366,7 @@ class Enumerated(Type):
                     self.format_names(),
                     data))
 
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.append(ElementTree.Element(value))
 
         return element
@@ -390,42 +407,47 @@ class Enumerated(Type):
 
 class Sequence(MembersType):
 
-    def __init__(self, name, members):
-        super(Sequence, self).__init__(name, members, 'SEQUENCE')
+    def __init__(self, name, namespace, members):
+        super(Sequence, self).__init__(name, namespace, members, 'SEQUENCE')
 
 
 class SequenceOf(ArrayType):
 
-    def __init__(self, name, element_type):
+    def __init__(self, name, namespace, element_type):
         super(SequenceOf, self).__init__(name,
+                                         namespace,
                                          element_type,
                                          'SEQUENCE OF')
 
 
 class Set(MembersType):
 
-    def __init__(self, name, members):
-        super(Set, self).__init__(name, members, 'SET')
+    def __init__(self, name, namespace, members):
+        super(Set, self).__init__(name, namespace, members, 'SET')
 
 
 class SetOf(ArrayType):
 
-    def __init__(self, name, element_type):
+    def __init__(self, name, namespace, element_type):
         super(SetOf, self).__init__(name,
+                                    namespace,
                                     element_type,
                                     'SET OF')
 
 
 class Choice(Type):
 
-    def __init__(self, name, members, has_extension_marker):
-        super(Choice, self).__init__(name, 'CHOICE')
+    def __init__(self, name, namespace, members, has_extension_marker):
+        super(Choice, self).__init__(name, namespace, 'CHOICE')
         self.members = members
         self.name_to_member = {member.name: member for member in self.members}
         self.has_extension_marker = has_extension_marker
 
     def format_names(self):
         return format_or(sorted([member.name for member in self.members]))
+
+    def format_qnames(self):
+        return format_or(sorted([_to_qname(member.namespace, member.name) for member in self.members]))
 
     def encode(self, data):
         try:
@@ -436,7 +458,7 @@ class Choice(Type):
                     self.format_names(),
                     data[0]))
 
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
 
         try:
             element.append(member.encode(data[1]))
@@ -449,18 +471,19 @@ class Choice(Type):
 
     def decode(self, element):
         member_element = element[0]
-        name = member_element.tag
+        qnamestr = member_element.tag
+        qname : QName = from_qnamestr(qnamestr)
 
-        if name in self.name_to_member:
-            member = self.name_to_member[name]
+        if qname.local_name in self.name_to_member and qname.namespace == self.namespace:
+            member = self.name_to_member[qname.local_name]
         elif self.has_extension_marker:
             return (None, None)
         else:
             raise DecodeError(
                 "Expected choice {}, but got '{}'.".format(
-                    self.format_names(), name))
+                    self.format_qnames(), qnamestr))
         try:
-            return (name, member.decode(member_element))
+            return (qnamestr, member.decode(member_element))
         except ErrorWithLocation as e:
             # Add member location
             e.add_location(member)
@@ -484,16 +507,21 @@ class Choice(Type):
             raise e
 
     def decode_of(self, element):
-        name = element.tag
+        qnamestr = element.tag
+        qname : QName = from_qnamestr(qnamestr)
 
         try:
-            member = self.name_to_member[name]
+            member = self.name_to_member[qname.local_name]
         except KeyError:
             raise DecodeError(
                 "Expected choice {}, but got '{}'.".format(
-                    self.format_names(), name))
+                    self.format_qnames(), qnamestr))
+        if qname.namespace != self.namespace:
+            raise DecodeError(
+                "Expected choice {}, but got '{}'.".format(
+                    self.format_qnames(), qnamestr))
         try:
-            return (name, member.decode(element))
+            return (qnamestr, member.decode(element))
         except ErrorWithLocation as e:
             # Add member location
             e.add_location(member)
@@ -551,11 +579,11 @@ class ObjectDescriptor(GraphicString):
 
 class UTCTime(Type):
 
-    def __init__(self, name):
-        super(UTCTime, self).__init__(name, 'UTCTime')
+    def __init__(self, name, namespace):
+        super(UTCTime, self).__init__(name, namespace, 'UTCTime')
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.text = utc_time_from_datetime(data)
 
         return element
@@ -566,11 +594,11 @@ class UTCTime(Type):
 
 class GeneralizedTime(Type):
 
-    def __init__(self, name):
-        super(GeneralizedTime, self).__init__(name, 'GeneralizedTime')
+    def __init__(self, name, namespace):
+        super(GeneralizedTime, self).__init__(name, namespace, 'GeneralizedTime')
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.text = generalized_time_from_datetime(data)
 
         return element
@@ -582,7 +610,7 @@ class GeneralizedTime(Type):
 class Date(StringType):
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.text = str(data)
 
         return element
@@ -594,7 +622,7 @@ class Date(StringType):
 class TimeOfDay(StringType):
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.text = str(data)
 
         return element
@@ -606,7 +634,7 @@ class TimeOfDay(StringType):
 class DateTime(StringType):
 
     def encode(self, data):
-        element = ElementTree.Element(self.name)
+        element = ElementTree.Element(_to_qname(self.namespace, self.name))
         element.text = str(data).replace(' ', 'T')
 
         return element
@@ -618,8 +646,8 @@ class DateTime(StringType):
 
 class Any(Type):
 
-    def __init__(self, name):
-        super(Any, self).__init__(name, 'ANY')
+    def __init__(self, namespace, name):
+        super(Any, self).__init__(name, namespace, 'ANY')
 
     def encode(self, data):
         raise NotImplementedError('ANY is not yet implemented.')
@@ -630,8 +658,8 @@ class Any(Type):
 
 class Recursive(compiler.Recursive, Type):
 
-    def __init__(self, name, type_name, module_name):
-        super(Recursive, self).__init__(name, 'RECURSIVE')
+    def __init__(self, name, namespace, type_name, module_name):
+        super(Recursive, self).__init__(name, namespace, 'RECURSIVE')
         self.type_name = type_name
         self.module_name = module_name
         self._inner = None
@@ -651,6 +679,10 @@ class Recursive(compiler.Recursive, Type):
 
 class CompiledType(compiler.CompiledType):
 
+    def __init__(self, type_, namespace):
+        super(CompiledType, self).__init__(type_)
+        self.namespace = namespace
+
     def encode(self, data, indent=None):
         try:
             element = self._type.encode(data)
@@ -662,7 +694,7 @@ class CompiledType(compiler.CompiledType):
         if indent is not None:
             indent_xml(element, indent * " ")
 
-        return ElementTree.tostring(element, encoding='utf-8')
+        return ElementTree.tostring(element, encoding='utf-8', default_namespace=self.namespace)
 
     def decode(self, data):
         element = ElementTree.fromstring(data.decode('utf-8'))
@@ -673,17 +705,39 @@ class CompiledType(compiler.CompiledType):
             e.add_location(self._type)
             raise e
 
-
 class Compiler(compiler.Compiler):
+
+    def _get_namespace(self, type_descriptor, module_name):
+        xer_ext = type_descriptor.get('xer')
+        if xer_ext:
+            return xer_ext.get('namespace')
+        module = self._specification.get(module_name)
+        if module:
+            mod_xer_ext = module.get('xer')
+            if mod_xer_ext:
+                return mod_xer_ext.get('namespace')
+        return None
+
+    def compile_member(self, member, module_name):
+        # module_name is the name of the module the MembersType is declared in
+        compiled_member = super().compile_member(member, module_name)
+
+        namespace = self._get_namespace(member, module_name)
+        if (namespace and ('namespace' not in member or namespace != member.namespace)):
+            compiled_member = self.copy(compiled_member)
+            compiled_member.namespace = namespace
+
+        return compiled_member
 
     def process_type(self, type_name, type_descriptor, module_name):
         compiled_type = self.compile_type(type_name,
                                           type_descriptor,
                                           module_name)
 
-        return CompiledType(compiled_type)
+        return CompiledType(compiled_type, self._get_namespace(type_descriptor, module_name))
 
     def compile_type(self, name, type_descriptor, module_name):
+        namespace = self._get_namespace(type_descriptor, module_name)
         module_name = self.get_module_name(type_descriptor, module_name)
         type_name = type_descriptor['type']
 
@@ -691,10 +745,10 @@ class Compiler(compiler.Compiler):
             members, _ = self.compile_members(
                 type_descriptor['members'],
                 module_name)
-            compiled = Sequence(name, members)
+            compiled = Sequence(name, namespace, members)
         elif type_name == 'SEQUENCE OF':
             element = type_descriptor['element']
-            compiled = SequenceOf(name,
+            compiled = SequenceOf(name, namespace,
                                   self.compile_type(type_descriptor.get('element_name') or element['type'],
                                                     element,
                                                     module_name))
@@ -702,80 +756,80 @@ class Compiler(compiler.Compiler):
             members, _ = self.compile_members(
                 type_descriptor['members'],
                 module_name)
-            compiled = Set(name, members)
+            compiled = Set(name, namespace, members)
         elif type_name == 'SET OF':
             element = type_descriptor['element']
-            compiled = SetOf(name,
+            compiled = SetOf(name, namespace,
                              self.compile_type(type_descriptor.get('element_name') or element['type'],
                                                element,
                                                module_name))
         elif type_name == 'CHOICE':
-            compiled = Choice(name,
+            compiled = Choice(name, namespace,
                               *self.compile_members(
                                   type_descriptor['members'],
                                   module_name))
         elif type_name == 'INTEGER':
-            compiled = Integer(name)
+            compiled = Integer(name, namespace)
         elif type_name == 'REAL':
-            compiled = Real(name)
+            compiled = Real(name, namespace)
         elif type_name == 'ENUMERATED':
-            compiled = Enumerated(name,
+            compiled = Enumerated(name, namespace,
                                   self.get_enum_values(type_descriptor,
                                                        module_name),
                                   self._numeric_enums)
         elif type_name == 'BOOLEAN':
-            compiled = Boolean(name)
+            compiled = Boolean(name, namespace)
         elif type_name == 'OBJECT IDENTIFIER':
-            compiled = ObjectIdentifier(name)
+            compiled = ObjectIdentifier(name, namespace)
         elif type_name == 'OCTET STRING':
-            compiled = OctetString(name)
+            compiled = OctetString(name, namespace)
         elif type_name == 'TeletexString':
-            compiled = TeletexString(name)
+            compiled = TeletexString(name, namespace)
         elif type_name == 'NumericString':
-            compiled = NumericString(name)
+            compiled = NumericString(name, namespace)
         elif type_name == 'PrintableString':
-            compiled = PrintableString(name)
+            compiled = PrintableString(name, namespace)
         elif type_name == 'IA5String':
-            compiled = IA5String(name)
+            compiled = IA5String(name, namespace)
         elif type_name == 'VisibleString':
-            compiled = VisibleString(name)
+            compiled = VisibleString(name, namespace)
         elif type_name == 'GeneralString':
-            compiled = GeneralString(name)
+            compiled = GeneralString(name, namespace)
         elif type_name == 'UTF8String':
-            compiled = UTF8String(name)
+            compiled = UTF8String(name, namespace)
         elif type_name == 'BMPString':
-            compiled = BMPString(name)
+            compiled = BMPString(name, namespace)
         elif type_name == 'GraphicString':
-            compiled = GraphicString(name)
+            compiled = GraphicString(name, namespace)
         elif type_name == 'UTCTime':
-            compiled = UTCTime(name)
+            compiled = UTCTime(name, namespace)
         elif type_name == 'UniversalString':
-            compiled = UniversalString(name)
+            compiled = UniversalString(name, namespace)
         elif type_name == 'GeneralizedTime':
-            compiled = GeneralizedTime(name)
+            compiled = GeneralizedTime(name, namespace)
         elif type_name == 'DATE':
-            compiled = Date(name)
+            compiled = Date(name, namespace)
         elif type_name == 'TIME-OF-DAY':
-            compiled = TimeOfDay(name)
+            compiled = TimeOfDay(name, namespace)
         elif type_name == 'DATE-TIME':
-            compiled = DateTime(name)
+            compiled = DateTime(name, namespace)
         elif type_name == 'BIT STRING':
-            compiled = BitString(name)
+            compiled = BitString(name, namespace)
         elif type_name == 'ANY':
-            compiled = Any(name)
+            compiled = Any(name, namespace)
         elif type_name == 'ANY DEFINED BY':
-            compiled = Any(name)
+            compiled = Any(name, namespace)
         elif type_name == 'NULL':
-            compiled = Null(name)
+            compiled = Null(name, namespace)
         elif type_name == 'EXTERNAL':
             members, _ = self.compile_members(self.external_type_descriptor()['members'],
                                               module_name)
-            compiled = Sequence(name, members)
+            compiled = Sequence(name, namespace, members)
         elif type_name == 'ObjectDescriptor':
-            compiled = ObjectDescriptor(name)
+            compiled = ObjectDescriptor(name, namespace)
         else:
             if type_name in self.types_backtrace:
-                compiled = Recursive(name,
+                compiled = Recursive(name, namespace,
                                      type_name,
                                      module_name)
                 self.recursive_types.append(compiled)
